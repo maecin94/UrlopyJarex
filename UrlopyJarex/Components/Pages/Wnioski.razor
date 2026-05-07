@@ -1,0 +1,208 @@
+﻿@page "/wnioski"
+@rendermode InteractiveServer
+
+@using UrlopyJarex.Models
+@using UrlopyJarex.Services
+
+@inject VacationRequestService VacationRequestService
+
+<PageTitle>Wnioski urlopowe</PageTitle>
+
+<h1>Wnioski urlopowe</h1>
+
+<p class="text-muted">
+    Historia wszystkich wniosków urlopowych wraz ze statusem, terminem, zastępcą i informacją o akceptacjach.
+</p>
+
+<div class="card mb-4">
+    <div class="card-header">
+        Filtry
+    </div>
+
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label">Status</label>
+                <select class="form-select" @bind="selectedStatus">
+                    <option value="0">Wszystkie</option>
+                    <option value="1">Oczekuje na akceptację zastępcy</option>
+                    <option value="2">Odrzucony przez zastępcę</option>
+                    <option value="3">Oczekuje na akceptację koordynatora</option>
+                    <option value="4">Odrzucony przez koordynatora</option>
+                    <option value="5">Zaakceptowany</option>
+                    <option value="6">Anulowany</option>
+                </select>
+            </div>
+
+            <div class="col-md-2 d-flex align-items-end">
+                <button class="btn btn-primary w-100" @onclick="LoadAsync">
+                    Odśwież
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (requests is null)
+{
+    <p>Ładowanie wniosków...</p>
+}
+else if (!FilteredRequests.Any())
+{
+    <div class="alert alert-info">
+        Brak wniosków dla wybranego filtra.
+    </div>
+}
+else
+{
+    <table class="table table-striped table-hover align-middle">
+        <thead>
+            <tr>
+                <th>Id</th>
+                <th>Pracownik</th>
+                <th>Zastępca</th>
+                <th>Termin</th>
+                <th>Dni</th>
+                <th>Typ</th>
+                <th>Status</th>
+                <th>Utworzono</th>
+                <th>Akceptacja zastępcy</th>
+                <th>Akceptacja koordynatora</th>
+                <th>Anulowano</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var request in FilteredRequests)
+            {
+                <tr>
+                    <td>@request.Id</td>
+
+                    <td>
+                        <strong>@request.EmployeeFullName</strong>
+                    </td>
+
+                    <td>
+                        @request.SubstituteEmployeeFullName
+                    </td>
+
+                    <td>
+                        @request.DateFrom.ToString("yyyy-MM-dd")
+                        –
+                        @request.DateTo.ToString("yyyy-MM-dd")
+                    </td>
+
+                    <td>
+                        @request.DaysCount
+                    </td>
+
+                    <td>
+                        @request.VacationType.ToPolishName()
+                    </td>
+
+                    <td>
+                        @StatusBadge(request.Status)
+                    </td>
+
+                    <td>
+                        @request.CreatedAt.ToString("yyyy-MM-dd HH:mm")
+                    </td>
+
+                    <td>
+                        @FormatDateTime(request.SubstituteAcceptedAt)
+                    </td>
+
+                    <td>
+                        @FormatDateTime(request.CoordinatorAcceptedAt)
+                    </td>
+
+                    <td>
+                        @FormatDateTime(request.CancelledAt)
+                    </td>
+                </tr>
+
+                @if (!string.IsNullOrWhiteSpace(request.EmployeeComment) ||
+                     !string.IsNullOrWhiteSpace(request.SubstituteComment) ||
+                     !string.IsNullOrWhiteSpace(request.CoordinatorComment))
+                {
+                    <tr>
+                        <td></td>
+                        <td colspan="10">
+                            <div class="request-comments">
+                                @if (!string.IsNullOrWhiteSpace(request.EmployeeComment))
+                                {
+                                    <div>
+                                        <strong>Komentarz pracownika:</strong>
+                                        @request.EmployeeComment
+                                    </div>
+                                }
+
+                                @if (!string.IsNullOrWhiteSpace(request.SubstituteComment))
+                                {
+                                    <div>
+                                        <strong>Komentarz zastępcy:</strong>
+                                        @request.SubstituteComment
+                                    </div>
+                                }
+
+                                @if (!string.IsNullOrWhiteSpace(request.CoordinatorComment))
+                                {
+                                    <div>
+                                        <strong>Komentarz koordynatora:</strong>
+                                        @request.CoordinatorComment
+                                    </div>
+                                }
+                            </div>
+                        </td>
+                    </tr>
+                }
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private List<VacationRequest>? requests;
+    private int selectedStatus;
+
+    private IEnumerable<VacationRequest> FilteredRequests
+    {
+        get
+        {
+            if (requests is null)
+            {
+                return Enumerable.Empty<VacationRequest>();
+            }
+
+            if (selectedStatus == 0)
+            {
+                return requests;
+            }
+
+            return requests.Where(x => (int)x.Status == selectedStatus);
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        requests = (await VacationRequestService.GetAllAsync()).ToList();
+    }
+
+    private static string FormatDateTime(DateTime? value)
+    {
+        return value.HasValue
+            ? value.Value.ToString("yyyy-MM-dd HH:mm")
+            : "-";
+    }
+
+    private MarkupString StatusBadge(VacationRequestStatus status)
+    {
+        return new MarkupString(
+            $"<span class=\"{status.ToBadgeCssClass()}\">{status.ToPolishName()}</span>"
+        );
+    }
+}

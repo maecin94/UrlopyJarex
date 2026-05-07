@@ -1,0 +1,90 @@
+﻿@page "/eksport"
+@rendermode InteractiveServer
+
+@using UrlopyJarex.Models
+
+<PageTitle>Eksport</PageTitle>
+
+<h1>Eksport do Excela</h1>
+
+<p class="text-muted">
+    Eksport urlopów do pliku XLSX dla kadrowej. Plik zawiera arkusz z listą wniosków oraz arkusz z podsumowaniem zaakceptowanych dni.
+</p>
+
+<div class="card">
+    <div class="card-header">
+        Parametry eksportu
+    </div>
+
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-2">
+                <label class="form-label">Rok</label>
+                <InputNumber class="form-control" @bind-Value="year" />
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">Miesiąc</label>
+                <select class="form-select" @bind="month">
+                    <option value="">Cały rok</option>
+                    <option value="1">Styczeń</option>
+                    <option value="2">Luty</option>
+                    <option value="3">Marzec</option>
+                    <option value="4">Kwiecień</option>
+                    <option value="5">Maj</option>
+                    <option value="6">Czerwiec</option>
+                    <option value="7">Lipiec</option>
+                    <option value="8">Sierpień</option>
+                    <option value="9">Wrzesień</option>
+                    <option value="10">Październik</option>
+                    <option value="11">Listopad</option>
+                    <option value="12">Grudzień</option>
+                </select>
+            </div>
+
+            <div class="col-md-4">
+                <label class="form-label">Status</label>
+                <select class="form-select" @bind="status">
+                    <option value="0">Wszystkie statusy</option>
+                    <option value="1">Oczekuje na akceptację zastępcy</option>
+                    <option value="2">Odrzucony przez zastępcę</option>
+                    <option value="3">Oczekuje na akceptację koordynatora</option>
+                    <option value="4">Odrzucony przez koordynatora</option>
+                    <option value="5">Zaakceptowany</option>
+                    <option value="6">Anulowany</option>
+                </select>
+            </div>
+
+            <div class="col-md-3 d-flex align-items-end">
+                <a class="btn btn-primary w-100" href="@ExportUrl">
+                    Pobierz XLSX
+                </a>
+            </div>
+        </div>
+
+        <p class="text-muted mt-3">
+            Arkusz „Podsumowanie” liczy tylko zaakceptowane urlopy.
+        </p>
+    </div>
+</div>
+
+@code {
+    private int year = DateTime.Today.Year;
+    private int? month;
+    private int status = 5;
+
+    private string ExportUrl
+    {
+        get
+        {
+            var url = $"/api/eksport-urlopow?year={year}&status={status}";
+
+            if (month.HasValue)
+            {
+                url += $"&month={month.Value}";
+            }
+
+            return url;
+        }
+    }
+}

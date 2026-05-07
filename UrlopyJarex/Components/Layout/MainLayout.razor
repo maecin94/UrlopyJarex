@@ -1,9 +1,27 @@
 ﻿@inherits LayoutComponentBase
 
-@Body
+<div class="app-shell">
+    <aside class="sidebar">
+        <div class="brand">
+            UrlopyJarex
+        </div>
 
-<div id="blazor-error-ui">
-    An unhandled error has occurred.
-    <a href="" class="reload">Reload</a>
-    <a class="dismiss">🗙</a>
+        <nav class="nav-menu">
+            <a href="/">Strona główna</a>
+            <a href="/pracownicy">Pracownicy</a>
+            <a href="/limity-urlopowe">Limity urlopowe</a>
+            <a href="/nowy-wniosek">Nowy wniosek</a>
+            <a href="/akceptacja-zastepstwa">Akceptacja zastępstwa</a>
+            <a href="/akceptacja-koordynatora">Akceptacja koordynatora</a>
+            <a href="/anulowanie-urlopu">Anulowanie urlopu</a>
+            <a href="/wnioski">Wnioski urlopowe</a>
+            <a href="/kalendarz-urlopow">Kalendarz urlopów</a>
+            <a href="/swieta">Święta</a>
+            <a href="/eksport">Eksport</a>
+        </nav>
+    </aside>
+
+    <main class="main-content">
+        @Body
+    </main>
 </div>

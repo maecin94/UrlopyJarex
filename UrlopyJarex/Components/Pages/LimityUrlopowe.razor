@@ -1,0 +1,275 @@
+﻿@page "/limity-urlopowe"
+@rendermode InteractiveServer
+
+@using UrlopyJarex.Models
+@using UrlopyJarex.Services
+
+@inject EmployeeService EmployeeService
+@inject VacationLimitService VacationLimitService
+
+<PageTitle>Limity urlopowe</PageTitle>
+
+<h1>Limity urlopowe</h1>
+
+<p class="text-muted">
+    Roczne limity urlopowe pracowników. Wykorzystane dni zwiększają się dopiero po finalnej akceptacji koordynatora.
+</p>
+
+@if (!string.IsNullOrWhiteSpace(message))
+{
+    <div class="alert @(success ? "alert-success" : "alert-danger")">
+        @message
+    </div>
+}
+
+<div class="card mb-4">
+    <div class="card-header">
+        Ustaw limit urlopowy
+    </div>
+
+    <div class="card-body">
+        <EditForm Model="formModel" OnValidSubmit="SaveAsync">
+            <DataAnnotationsValidator />
+
+            <div class="row g-3">
+                <div class="col-md-2">
+                    <label class="form-label">Rok</label>
+                    <InputNumber class="form-control" @bind-Value="formModel.Year" />
+                </div>
+
+                <div class="col-md-5">
+                    <label class="form-label">Pracownik</label>
+                    <InputSelect class="form-select" @bind-Value="formModel.EmployeeId">
+                        <option value="0">-- wybierz pracownika --</option>
+
+                        @foreach (var employee in activeEmployees)
+                        {
+                            <option value="@employee.Id">@employee.FullName</option>
+                        }
+                    </InputSelect>
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Wymiar urlopu</label>
+                    <InputNumber class="form-control" @bind-Value="formModel.EntitlementDays" />
+                </div>
+
+                <div class="col-md-2 d-flex align-items-end">
+                    <button class="btn btn-primary w-100" type="submit">
+                        Zapisz
+                    </button>
+                </div>
+            </div>
+        </EditForm>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header">
+        Widok roku
+    </div>
+
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-2">
+                <label class="form-label">Rok</label>
+                <InputNumber class="form-control" @bind-Value="selectedYear" />
+            </div>
+
+            <div class="col-md-2 d-flex align-items-end">
+                <button class="btn btn-outline-primary w-100" @onclick="LoadAsync">
+                    Pokaż
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (limits is not null && limits.Any(x => !x.HasLimit))
+{
+    <div class="alert alert-info">
+        Liczba aktywnych pracowników bez limitu na rok @selectedYear:
+        <strong>@limits.Count(x => !x.HasLimit)</strong>
+    </div>
+}
+
+@if (limits is null)
+{
+    <p>Ładowanie limitów...</p>
+}
+else if (!limits.Any())
+{
+    <div class="alert alert-info">
+        Brak aktywnych pracowników.
+    </div>
+}
+else
+{
+    <table class="table table-striped table-hover align-middle">
+        <thead>
+            <tr>
+                <th>Pracownik</th>
+                <th>Rok</th>
+                <th>Wymiar</th>
+                <th>Wykorzystane</th>
+                <th>Pozostało</th>
+                <th style="width: 160px;">Akcje</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var limit in limits)
+            {
+                <tr>
+                    <td>
+                        <strong>@limit.EmployeeFullName</strong>
+                    </td>
+                    <td>@limit.Year</td>
+                    <td>
+                        @if (limit.HasLimit)
+                        {
+                            @limit.EntitlementDays
+                        }
+                        else
+                        {
+                            <span class="badge bg-warning text-dark">Brak limitu</span>
+                        }
+                    </td>
+
+                    <td>
+                        @limit.UsedDays
+                    </td>
+
+                    <td>
+                        @if (!limit.HasLimit)
+                        {
+                            <span class="text-muted">-</span>
+                        }
+                        else if (limit.RemainingDays > 0)
+                        {
+                            <span class="badge bg-success">@limit.RemainingDays</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-warning text-dark">@limit.RemainingDays</span>
+                        }
+                    </td>
+
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary" @onclick="() => Edit(limit)">
+                            @(limit.HasLimit ? "Edytuj" : "Ustaw limit")
+                        </button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private List<Employee> activeEmployees = new();
+    private List<EmployeeVacationLimitRow>? limits;
+
+    private int selectedYear = DateTime.Today.Year;
+
+    private LimitFormModel formModel = new()
+    {
+        Year = DateTime.Today.Year,
+        EntitlementDays = 26
+    };
+
+    private string? message;
+    private bool success;
+
+    protected override async Task OnInitializedAsync()
+    {
+        activeEmployees = (await EmployeeService.GetActiveAsync()).ToList();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        ClearMessage();
+
+        if (selectedYear < 2000 || selectedYear > 2100)
+        {
+            SetMessage(false, "Podaj poprawny rok.");
+            return;
+        }
+
+        limits = (await VacationLimitService.GetRowsByYearAsync(selectedYear)).ToList();
+    }
+
+    private async Task SaveAsync()
+    {
+        ClearMessage();
+
+        if (formModel.EmployeeId <= 0)
+        {
+            SetMessage(false, "Wybierz pracownika.");
+            return;
+        }
+
+        if (formModel.Year < 2000 || formModel.Year > 2100)
+        {
+            SetMessage(false, "Podaj poprawny rok.");
+            return;
+        }
+
+        if (formModel.EntitlementDays < 0)
+        {
+            SetMessage(false, "Wymiar urlopu nie może być ujemny.");
+            return;
+        }
+
+        var result = await VacationLimitService.UpsertAsync(
+            formModel.EmployeeId,
+            formModel.Year,
+            formModel.EntitlementDays);
+
+        SetMessage(result.Success, result.Message);
+
+        selectedYear = formModel.Year;
+        await LoadAsync();
+
+        if (result.Success)
+        {
+            formModel = new LimitFormModel
+            {
+                Year = selectedYear,
+                EntitlementDays = 26
+            };
+        }
+    }
+
+    private void Edit(EmployeeVacationLimitRow limit)
+    {
+        formModel = new LimitFormModel
+        {
+            EmployeeId = limit.EmployeeId,
+            Year = limit.Year,
+            EntitlementDays = limit.EntitlementDays ?? 26
+        };
+
+        ClearMessage();
+    }
+
+    private void SetMessage(bool isSuccess, string text)
+    {
+        success = isSuccess;
+        message = text;
+    }
+
+    private void ClearMessage()
+    {
+        message = null;
+    }
+
+    private class LimitFormModel
+    {
+        public int EmployeeId { get; set; }
+
+        public int Year { get; set; }
+
+        public int EntitlementDays { get; set; }
+    }
+}

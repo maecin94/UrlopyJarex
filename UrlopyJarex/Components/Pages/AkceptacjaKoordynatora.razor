@@ -1,0 +1,184 @@
+﻿@page "/akceptacja-koordynatora"
+@rendermode InteractiveServer
+
+@using UrlopyJarex.Models
+@using UrlopyJarex.Services
+
+@inject VacationRequestService VacationRequestService
+
+<PageTitle>Akceptacja koordynatora</PageTitle>
+
+<h1>Akceptacja koordynatora</h1>
+
+<p class="text-muted">
+    Wnioski zaakceptowane przez osobę zastępującą i oczekujące na finalną akceptację koordynatora.
+    Po zaakceptowaniu dni zostaną odjęte z rocznego limitu urlopowego pracownika.
+</p>
+
+@if (!string.IsNullOrWhiteSpace(message))
+{
+    <div class="alert @(success ? "alert-success" : "alert-danger")">
+        @message
+    </div>
+}
+
+@if (requests is null)
+{
+    <p>Ładowanie wniosków...</p>
+}
+else if (!requests.Any())
+{
+    <div class="alert alert-info">
+        Brak wniosków oczekujących na akceptację koordynatora.
+    </div>
+}
+else
+{
+    <table class="table table-striped table-hover align-middle">
+        <thead>
+            <tr>
+                <th>Pracownik</th>
+                <th>Zastępca</th>
+                <th>Termin</th>
+                <th>Dni</th>
+                <th>Typ</th>
+                <th>Komentarz pracownika</th>
+                <th>Komentarz zastępcy</th>
+                <th>Komentarz koordynatora</th>
+                <th style="width: 220px;">Akcje</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var request in requests)
+            {
+                <tr>
+                    <td>
+                        <strong>@request.EmployeeFullName</strong>
+                    </td>
+
+                    <td>
+                        @request.SubstituteEmployeeFullName
+                    </td>
+
+                    <td>
+                        @request.DateFrom.ToString("yyyy-MM-dd")
+                        –
+                        @request.DateTo.ToString("yyyy-MM-dd")
+                    </td>
+
+                    <td>
+                        @request.DaysCount
+                    </td>
+
+                    <td>
+                        @request.VacationType.ToPolishName()
+                    </td>
+
+                    <td>
+                        @if (string.IsNullOrWhiteSpace(request.EmployeeComment))
+                        {
+                            <span class="text-muted">Brak</span>
+                        }
+                        else
+                        {
+                            @request.EmployeeComment
+                        }
+                    </td>
+
+                    <td>
+                        @if (string.IsNullOrWhiteSpace(request.SubstituteComment))
+                        {
+                            <span class="text-muted">Brak</span>
+                        }
+                        else
+                        {
+                            @request.SubstituteComment
+                        }
+                    </td>
+
+                    <td>
+                        <textarea class="form-control"
+                                  rows="2"
+                                  @bind="comments[request.Id]"></textarea>
+                    </td>
+
+                    <td>
+                        <button class="btn btn-sm btn-primary"
+                                @onclick="() => AcceptAsync(request.Id)">
+                            Akceptuj
+                        </button>
+
+                        <button class="btn btn-sm btn-outline-dark ms-1"
+                                @onclick="() => RejectAsync(request.Id)">
+                            Odrzuć
+                        </button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private List<VacationRequest>? requests;
+    private Dictionary<int, string?> comments = new();
+
+    private string? message;
+    private bool success;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        requests = (await VacationRequestService.GetPendingCoordinatorApprovalAsync()).ToList();
+
+        comments = requests.ToDictionary(
+            x => x.Id,
+            x => x.CoordinatorComment
+        );
+    }
+
+    private async Task AcceptAsync(int requestId)
+    {
+        ClearMessage();
+
+        comments.TryGetValue(requestId, out var comment);
+
+        var result = await VacationRequestService.AcceptByCoordinatorAsync(
+            requestId,
+            comment);
+
+        SetMessage(result.Success, result.Message);
+
+        await LoadAsync();
+    }
+
+    private async Task RejectAsync(int requestId)
+    {
+        ClearMessage();
+
+        comments.TryGetValue(requestId, out var comment);
+
+        var result = await VacationRequestService.RejectByCoordinatorAsync(
+            requestId,
+            comment);
+
+        SetMessage(result.Success, result.Message);
+
+        await LoadAsync();
+    }
+
+    private void SetMessage(bool isSuccess, string text)
+    {
+        success = isSuccess;
+        message = text;
+    }
+
+    private void ClearMessage()
+    {
+        message = null;
+    }
+}

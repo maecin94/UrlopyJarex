@@ -1,0 +1,503 @@
+﻿@page "/nowy-wniosek"
+@rendermode InteractiveServer
+
+@using UrlopyJarex.Models
+@using UrlopyJarex.Services
+
+@inject EmployeeService EmployeeService
+@inject VacationRequestService VacationRequestService
+@inject VacationLimitService VacationLimitService
+
+<PageTitle>Nowy wniosek</PageTitle>
+
+<h1>Nowy wniosek urlopowy</h1>
+
+<p class="text-muted">
+    Wprowadź wniosek urlopowy dla pracownika. Osoba zastępująca nie może mieć urlopu w tym samym terminie
+    ani zastępować innej osoby w tym samym czasie.
+</p>
+
+@if (!string.IsNullOrWhiteSpace(message))
+{
+    <div class="alert @(success ? "alert-success" : "alert-danger")">
+        @message
+    </div>
+}
+
+<div class="card">
+    <div class="card-header">
+        Dane wniosku
+    </div>
+
+    <div class="card-body">
+        <EditForm Model="formModel" OnValidSubmit="SaveAsync">
+            <DataAnnotationsValidator />
+
+            <div class="row g-3">
+                <div class="col-md-5">
+                    <label class="form-label">Pracownik</label>
+                    <select class="form-select" @bind="formModel.EmployeeId" @bind:after="EmployeeChangedAsync">
+                        <option value="0">-- wybierz pracownika --</option>
+
+                        @foreach (var employee in activeEmployees)
+                        {
+                            <option value="@employee.Id">@employee.FullName</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="col-md-5">
+                    <label class="form-label">Osoba zastępująca</label>
+                    <select class="form-select" @bind="formModel.SubstituteEmployeeId" @bind:after="RefreshPreviewAsync">
+                        <option value="0">-- wybierz zastępcę --</option>
+
+                        @foreach (var employee in AvailableSubstitutes)
+                        {
+                            <option value="@employee.Id">@employee.FullName</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Data od</label>
+                    <input type="date"
+                           class="form-control"
+                           @bind="formModel.DateFrom"
+                           @bind:format="yyyy-MM-dd"
+                           @bind:after="RefreshPreviewAsync" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Data do</label>
+                    <input type="date"
+                           class="form-control"
+                           @bind="formModel.DateTo"
+                           @bind:format="yyyy-MM-dd"
+                           @bind:after="RefreshPreviewAsync" />
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label">Typ urlopu</label>
+                    <InputSelect class="form-select" @bind-Value="formModel.VacationType">
+                        <option value="@VacationType.Vacation">Urlop wypoczynkowy</option>
+                    </InputSelect>
+                </div>
+
+                <div class="col-md-12">
+                    <label class="form-label">Komentarz pracownika</label>
+                    <InputTextArea class="form-control" @bind-Value="formModel.EmployeeComment" rows="4" />
+                </div>
+            </div>
+
+            <div class="mt-3">
+                <button class="btn btn-primary" type="submit" disabled="@(!CanSubmit)">
+                    Złóż wniosek
+                </button>
+
+                <button class="btn btn-secondary ms-2" type="button" @onclick="ResetForm">
+                    Wyczyść
+                </button>
+            </div>
+            @if (!CanSubmit)
+            {
+                <div class="form-text mt-3">
+                    Przycisk „Złóż wniosek” będzie aktywny po wybraniu poprawnego pracownika, zastępcy, terminu oraz dostępnego limitu urlopowego.
+                </div>
+            }
+        </EditForm>
+    </div>
+</div>
+
+<div class="card mt-3">
+    <div class="card-header">
+        Podgląd urlopu
+    </div>
+
+    <div class="card-body">
+        <div class="preview-grid">
+            <div class="preview-item">
+                <div class="preview-label">Dni robocze wniosku</div>
+                <div class="preview-value">@WorkingDaysPreview</div>
+            </div>
+
+            @if (availability is null)
+            {
+                <div class="preview-item">
+                    <div class="preview-label">Limit pracownika</div>
+                    <div class="preview-value warning">Brak</div>
+                </div>
+            }
+            else
+            {
+                <div class="preview-item">
+                    <div class="preview-label">Limit roczny</div>
+                    <div class="preview-value">@availability.EntitlementDays</div>
+                </div>
+
+                <div class="preview-item">
+                    <div class="preview-label">Wykorzystane</div>
+                    <div class="preview-value">@availability.UsedDays</div>
+                </div>
+
+                <div class="preview-item">
+                    <div class="preview-label">Pozostało</div>
+                    <div class="preview-value">@availability.RemainingDays</div>
+                </div>
+
+                <div class="preview-item">
+                    <div class="preview-label">Pozostanie po wniosku</div>
+                    <div class="preview-value @(RemainingAfterRequest < 0 ? "danger" : "")">
+                        @RemainingAfterRequest
+                    </div>
+                </div>
+            }
+        </div>
+
+        <p class="text-muted mt-3">
+            Liczone są tylko dni od poniedziałku do piątku, z pominięciem aktywnych świąt zdefiniowanych w systemie.
+            Wniosek nie może przechodzić przez granicę roku.
+        </p>
+
+        @if (formModel.EmployeeId > 0 && availability is null)
+        {
+            <div class="alert alert-danger">
+                Dla wybranego pracownika nie ustawiono limitu urlopowego na rok @formModel.DateFrom.Year.
+            </div>
+        }
+
+        @if (availability is not null && RemainingAfterRequest < 0)
+        {
+            <div class="alert alert-danger">
+                Wniosek przekracza dostępny limit urlopu.
+            </div>
+        }
+
+        @if (formModel.EmployeeId > 0 && formModel.SubstituteEmployeeId > 0 && formModel.EmployeeId == formModel.SubstituteEmployeeId)
+        {
+            <div class="alert alert-danger">
+                Pracownik nie może być własnym zastępcą.
+            </div>
+        }
+
+        @if (formModel.DateTo < formModel.DateFrom)
+        {
+            <div class="alert alert-danger">
+                Data zakończenia nie może być wcześniejsza niż data rozpoczęcia.
+            </div>
+        }
+
+        @if (formModel.DateFrom.Year != formModel.DateTo.Year)
+        {
+            <div class="alert alert-danger">
+                Urlop nie może przechodzić przez granicę roku. Złóż dwa osobne wnioski.
+            </div>
+        }
+
+        @if (WorkingDaysPreview <= 0)
+        {
+            <div class="alert alert-danger">
+                W wybranym zakresie nie ma dni roboczych.
+            </div>
+        }
+
+        @if (conflictInfo.EmployeeHasVacationConflict)
+        {
+            <div class="alert alert-danger">
+                Wybrany pracownik ma już aktywny wniosek urlopowy w tym terminie.
+            </div>
+        }
+
+        @if (conflictInfo.EmployeeHasSubstitutionConflict)
+        {
+            <div class="alert alert-danger">
+                Wybrany pracownik nie może iść na urlop, ponieważ w tym terminie zastępuje już inną osobę.
+            </div>
+        }
+
+        @if (conflictInfo.SubstituteHasVacationConflict)
+        {
+            <div class="alert alert-danger">
+                Osoba zastępująca ma urlop w tym terminie.
+            </div>
+        }
+
+        @if (conflictInfo.SubstituteHasSubstitutionConflict)
+        {
+            <div class="alert alert-danger">
+                Osoba zastępująca zastępuje już inną osobę w tym terminie.
+            </div>
+        }
+    </div>
+
+    <div class="card mt-3">
+        <div class="card-header">
+            Dostępność zastępców w wybranym terminie
+        </div>
+
+        <div class="card-body">
+            @if (formModel.EmployeeId <= 0)
+            {
+                <div class="alert alert-info">
+                    Wybierz pracownika, żeby sprawdzić dostępność zastępców.
+                </div>
+            }
+            else if (!substituteAvailability.Any())
+            {
+                <div class="alert alert-info">
+                    Brak danych o dostępności zastępców dla wybranego terminu.
+                </div>
+            }
+            else
+            {
+                <table class="table table-striped table-hover align-middle">
+                    <thead>
+                        <tr>
+                            <th>Pracownik</th>
+                            <th>Status</th>
+                            <th>Dostępny jako zastępca</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in substituteAvailability)
+                        {
+                            <tr>
+                                <td>
+                                    <strong>@row.EmployeeFullName</strong>
+                                </td>
+
+                                <td>
+                                    @if (row.IsAvailable)
+                                    {
+                                        <span class="badge bg-success">@row.StatusText</span>
+                                    }
+                                    else if (row.IsSelectedEmployee)
+                                    {
+                                        <span class="badge bg-secondary">@row.StatusText</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-danger">@row.StatusText</span>
+                                    }
+                                </td>
+
+                                <td>
+                                    @if (row.IsAvailable)
+                                    {
+                                        <span>Tak</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">Nie</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<Employee> activeEmployees = new();
+    private int workingDaysPreview;
+
+    private IEnumerable<Employee> AvailableSubstitutes
+    {
+        get
+        {
+            var unavailableIds = substituteAvailability
+                .Where(x => !x.IsAvailable)
+                .Select(x => x.EmployeeId)
+                .ToHashSet();
+
+            return activeEmployees
+                .Where(x => x.Id != formModel.EmployeeId)
+                .Where(x => !unavailableIds.Contains(x.Id))
+                .OrderBy(x => x.LastName)
+                .ThenBy(x => x.FirstName);
+        }
+    }
+
+    private VacationRequestFormModel formModel = new();
+    private VacationAvailability? availability;
+    private VacationConflictInfo conflictInfo = new();
+    private List<SubstituteAvailabilityRow> substituteAvailability = new();
+
+    private string? message;
+    private bool success;
+
+    private int WorkingDaysPreview => workingDaysPreview;
+
+    private int RemainingAfterRequest =>
+        availability is null
+            ? 0
+            : availability.RemainingDays - WorkingDaysPreview;
+
+    private bool CanSubmit =>
+    formModel.EmployeeId > 0 &&
+    formModel.SubstituteEmployeeId > 0 &&
+    formModel.EmployeeId != formModel.SubstituteEmployeeId &&
+    formModel.DateTo >= formModel.DateFrom &&
+    formModel.DateFrom.Year == formModel.DateTo.Year &&
+    WorkingDaysPreview > 0 &&
+    availability is not null &&
+    RemainingAfterRequest >= 0 &&
+    !conflictInfo.HasAnyConflict;
+
+    protected override async Task OnInitializedAsync()
+    {
+        activeEmployees = (await EmployeeService.GetActiveAsync()).ToList();
+        ResetForm();
+        await RefreshPreviewAsync();
+    }
+
+    private async Task RefreshWorkingDaysPreviewAsync()
+    {
+        if (formModel.DateTo < formModel.DateFrom)
+        {
+            workingDaysPreview = 0;
+            return;
+        }
+
+        workingDaysPreview = await VacationRequestService.CountWorkingDaysWithHolidaysAsync(
+            formModel.DateFrom,
+            formModel.DateTo);
+    }
+
+    private async Task RefreshPreviewAsync()
+    {
+        await RefreshWorkingDaysPreviewAsync();
+        await RefreshAvailabilityAsync();
+        await RefreshConflictsAsync();
+        await RefreshSubstituteAvailabilityAsync();
+
+        if (formModel.SubstituteEmployeeId > 0 &&
+            !AvailableSubstitutes.Any(x => x.Id == formModel.SubstituteEmployeeId))
+        {
+            formModel.SubstituteEmployeeId = 0;
+        }
+    }
+
+    private async Task RefreshSubstituteAvailabilityAsync()
+    {
+        substituteAvailability.Clear();
+
+        if (formModel.EmployeeId <= 0 ||
+            formModel.DateTo < formModel.DateFrom)
+        {
+            return;
+        }
+
+        substituteAvailability = (await VacationRequestService.GetSubstituteAvailabilityAsync(
+            formModel.EmployeeId,
+            formModel.DateFrom,
+            formModel.DateTo)).ToList();
+    }
+
+    private async Task EmployeeChangedAsync()
+    {
+        if (formModel.EmployeeId == formModel.SubstituteEmployeeId)
+        {
+            formModel.SubstituteEmployeeId = 0;
+        }
+
+        await RefreshPreviewAsync();
+    }
+
+    private async Task RefreshAvailabilityAsync()
+    {
+        if (formModel.EmployeeId <= 0)
+        {
+            availability = null;
+            return;
+        }
+
+        availability = await VacationLimitService.GetAvailabilityAsync(
+            formModel.EmployeeId,
+            formModel.DateFrom.Year);
+    }
+
+    private async Task RefreshConflictsAsync()
+    {
+        conflictInfo = new VacationConflictInfo();
+
+        if (formModel.EmployeeId <= 0 ||
+            formModel.SubstituteEmployeeId <= 0 ||
+            formModel.EmployeeId == formModel.SubstituteEmployeeId ||
+            formModel.DateTo < formModel.DateFrom)
+        {
+            return;
+        }
+
+        conflictInfo = await VacationRequestService.CheckConflictsAsync(
+            formModel.EmployeeId,
+            formModel.SubstituteEmployeeId,
+            formModel.DateFrom,
+            formModel.DateTo);
+    }
+
+    private async Task SaveAsync()
+    {
+        ClearMessage();
+
+        var result = await VacationRequestService.CreateAsync(
+            formModel.EmployeeId,
+            formModel.SubstituteEmployeeId,
+            formModel.DateFrom,
+            formModel.DateTo,
+            formModel.VacationType,
+            formModel.EmployeeComment);
+
+        SetMessage(result.Success, result.Message);
+
+        if (result.Success)
+        {
+            ResetForm();
+        }
+    }
+
+    private void ResetForm()
+    {
+        var today = DateTime.Today;
+
+        formModel = new VacationRequestFormModel
+        {
+            DateFrom = today,
+            DateTo = today,
+            VacationType = VacationType.Vacation
+        };
+
+        workingDaysPreview = 0;
+        availability = null;
+        conflictInfo = new VacationConflictInfo();
+        substituteAvailability.Clear();
+    }
+
+    private void SetMessage(bool isSuccess, string text)
+    {
+        success = isSuccess;
+        message = text;
+    }
+
+    private void ClearMessage()
+    {
+        message = null;
+    }
+
+    private class VacationRequestFormModel
+    {
+        public int EmployeeId { get; set; }
+
+        public int SubstituteEmployeeId { get; set; }
+
+        public DateTime DateFrom { get; set; } = DateTime.Today;
+
+        public DateTime DateTo { get; set; } = DateTime.Today;
+
+        public VacationType VacationType { get; set; } = VacationType.Vacation;
+
+        public string? EmployeeComment { get; set; }
+    }
+}

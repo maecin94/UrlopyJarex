@@ -1,0 +1,253 @@
+﻿@page "/kalendarz-urlopow"
+@rendermode InteractiveServer
+
+@using UrlopyJarex.Models
+@using UrlopyJarex.Services
+
+@inject EmployeeService EmployeeService
+
+@inject VacationRequestService VacationRequestService
+
+<PageTitle>Kalendarz urlopów</PageTitle>
+
+<h1>Kalendarz urlopów</h1>
+
+<p class="text-muted">
+    Widok pokazuje tylko zaakceptowane urlopy. Wnioski oczekujące na akceptację nie są tutaj widoczne.
+</p>
+
+<div class="card mb-4">
+    <div class="card-header">
+        Wybór miesiąca
+    </div>
+
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-3">
+                <label class="form-label">Rok</label>
+                <InputNumber class="form-control" @bind-Value="selectedYear" />
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">Miesiąc</label>
+                <InputSelect class="form-select" @bind-Value="selectedMonth">
+                    @for (var month = 1; month <= 12; month++)
+                    {
+                        <option value="@month">@GetMonthName(month)</option>
+                    }
+                </InputSelect>
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">Pracownik</label>
+                <select class="form-select" @bind="selectedEmployeeId" @bind:after="LoadAsync">
+                    <option value="0">Wszyscy pracownicy</option>
+
+                    @foreach (var employee in activeEmployees)
+                    {
+                        <option value="@employee.Id">@employee.FullName</option>
+                    }
+                </select>
+            </div>
+
+            <div class="col-md-2 d-flex align-items-end">
+                <button class="btn btn-primary w-100" @onclick="LoadAsync">
+                    Pokaż
+                </button>
+            </div>
+
+            <div class="col-md-2 d-flex align-items-end">
+                <button class="btn btn-secondary w-100" @onclick="PreviousMonthAsync">
+                    Poprzedni
+                </button>
+            </div>
+
+            <div class="col-md-2 d-flex align-items-end">
+                <button class="btn btn-secondary w-100" @onclick="NextMonthAsync">
+                    Następny
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(message))
+{
+    <div class="alert alert-danger">
+        @message
+    </div>
+}
+
+@if (approvedRequests is null)
+{
+    <p>Ładowanie kalendarza...</p>
+}
+else
+{
+    <div class="calendar">
+        <div class="calendar-header">Poniedziałek</div>
+        <div class="calendar-header">Wtorek</div>
+        <div class="calendar-header">Środa</div>
+        <div class="calendar-header">Czwartek</div>
+        <div class="calendar-header">Piątek</div>
+        <div class="calendar-header weekend">Sobota</div>
+        <div class="calendar-header weekend">Niedziela</div>
+
+        @foreach (var day in CalendarDays)
+        {
+            <div class="calendar-day @(day.Month != selectedMonth ? "outside-month" : "") @(IsWeekend(day) ? "weekend-day" : "")">
+                <div class="calendar-date">
+                    @day.Day
+                </div>
+
+                @foreach (var vacation in GetVacationsForDay(day))
+                {
+                    <div class="vacation-chip">
+                        <strong>@vacation.EmployeeFullName</strong>
+                        <br />
+                        <span>Zastępca: @vacation.SubstituteEmployeeFullName</span>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private int selectedYear = DateTime.Today.Year;
+    private int selectedMonth = DateTime.Today.Month;
+    private int selectedEmployeeId;
+    private List<Employee> activeEmployees = new();
+
+    private List<VacationRequest>? approvedRequests;
+    private string? message;
+
+    private List<DateTime> CalendarDays
+    {
+        get
+        {
+            var firstDayOfMonth = new DateTime(selectedYear, selectedMonth, 1);
+            var lastDayOfMonth = firstDayOfMonth.AddMonths(1).AddDays(-1);
+
+            var start = firstDayOfMonth;
+
+            while (start.DayOfWeek != DayOfWeek.Monday)
+            {
+                start = start.AddDays(-1);
+            }
+
+            var end = lastDayOfMonth;
+
+            while (end.DayOfWeek != DayOfWeek.Sunday)
+            {
+                end = end.AddDays(1);
+            }
+
+            var days = new List<DateTime>();
+
+            for (var day = start; day <= end; day = day.AddDays(1))
+            {
+                days.Add(day);
+            }
+
+            return days;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        activeEmployees = (await EmployeeService.GetActiveAsync()).ToList();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        message = null;
+
+        if (selectedYear < 2000 || selectedYear > 2100)
+        {
+            message = "Podaj poprawny rok.";
+            return;
+        }
+
+        if (selectedMonth < 1 || selectedMonth > 12)
+        {
+            message = "Podaj poprawny miesiąc.";
+            return;
+        }
+
+        var monthStart = new DateTime(selectedYear, selectedMonth, 1);
+        var monthEnd = monthStart.AddMonths(1).AddDays(-1);
+
+        approvedRequests = (await VacationRequestService.GetApprovedForPeriodAsync(
+            monthStart,
+            monthEnd)).ToList();
+    }
+
+    private async Task PreviousMonthAsync()
+    {
+        var current = new DateTime(selectedYear, selectedMonth, 1);
+        var previous = current.AddMonths(-1);
+
+        selectedYear = previous.Year;
+        selectedMonth = previous.Month;
+
+        await LoadAsync();
+    }
+
+    private async Task NextMonthAsync()
+    {
+        var current = new DateTime(selectedYear, selectedMonth, 1);
+        var next = current.AddMonths(1);
+
+        selectedYear = next.Year;
+        selectedMonth = next.Month;
+
+        await LoadAsync();
+    }
+
+    private IEnumerable<VacationRequest> GetVacationsForDay(DateTime day)
+    {
+        if (approvedRequests is null)
+        {
+            return Enumerable.Empty<VacationRequest>();
+        }
+
+        day = day.Date;
+
+        var query = approvedRequests
+            .Where(x => x.DateFrom.Date <= day && x.DateTo.Date >= day);
+
+        if (selectedEmployeeId > 0)
+        {
+            query = query.Where(x => x.EmployeeId == selectedEmployeeId);
+        }
+
+        return query.OrderBy(x => x.EmployeeFullName);
+    }
+
+    private static bool IsWeekend(DateTime day)
+    {
+        return day.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;
+    }
+
+    private static string GetMonthName(int month)
+    {
+        return month switch
+        {
+            1 => "Styczeń",
+            2 => "Luty",
+            3 => "Marzec",
+            4 => "Kwiecień",
+            5 => "Maj",
+            6 => "Czerwiec",
+            7 => "Lipiec",
+            8 => "Sierpień",
+            9 => "Wrzesień",
+            10 => "Październik",
+            11 => "Listopad",
+            12 => "Grudzień",
+            _ => ""
+        };
+    }
+}

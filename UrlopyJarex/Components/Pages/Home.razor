@@ -1,7 +1,219 @@
 ﻿@page "/"
+@rendermode InteractiveServer
 
-<PageTitle>Home</PageTitle>
+@using UrlopyJarex.Models
+@using UrlopyJarex.Services
 
-<h1>Hello, world!</h1>
+@inject EmployeeService EmployeeService
+@inject VacationRequestService VacationRequestService
 
-Welcome to your new app.
+<PageTitle>UrlopyJarex</PageTitle>
+
+<h1>UrlopyJarex</h1>
+
+<p class="text-muted">
+    Prosta aplikacja do obsługi wniosków urlopowych, zastępstw i rocznych limitów urlopowych.
+</p>
+
+@if (isLoading)
+{
+    <p>Ładowanie danych...</p>
+}
+else
+{
+    <div class="dashboard-grid">
+        <div class="dashboard-card">
+            <div class="dashboard-card-title">Aktywni pracownicy</div>
+            <div class="dashboard-card-value">@activeEmployeesCount</div>
+        </div>
+
+        <div class="dashboard-card">
+            <div class="dashboard-card-title">Rok roboczy</div>
+            <div class="dashboard-card-value">@DateTime.Today.Year</div>
+        </div>
+
+        <div class="dashboard-card">
+            <div class="dashboard-card-title">Koordynator urlopów</div>
+            <div class="dashboard-card-value">
+                @(hasCoordinator ? "Ustawiony" : "Brak")
+            </div>
+        </div>
+
+        <div class="dashboard-card">
+            <div class="dashboard-card-title">Oczekuje na zastępstwo</div>
+            <div class="dashboard-card-value">@counters.PendingSubstituteApproval</div>
+        </div>
+
+        <div class="dashboard-card">
+            <div class="dashboard-card-title">Oczekuje na koordynatora</div>
+            <div class="dashboard-card-value">@counters.PendingCoordinatorApproval</div>
+        </div>
+
+        <div class="dashboard-card">
+            <div class="dashboard-card-title">Zaakceptowane w tym roku</div>
+            <div class="dashboard-card-value">@counters.ApprovedInYear</div>
+        </div>
+
+        <div class="dashboard-card">
+            <div class="dashboard-card-title">Anulowane w tym roku</div>
+            <div class="dashboard-card-value">@counters.CancelledInYear</div>
+        </div>
+    </div>
+
+    <div class="card mt-3">
+        <div class="card-header">
+            Szybkie akcje
+        </div>
+
+        <div class="card-body">
+            <div class="quick-links">
+                <a class="quick-link" href="/nowy-wniosek">Nowy wniosek</a>
+                <a class="quick-link" href="/akceptacja-zastepstwa">Akceptacja zastępstwa</a>
+                <a class="quick-link" href="/akceptacja-koordynatora">Akceptacja koordynatora</a>
+                <a class="quick-link" href="/kalendarz-urlopow">Kalendarz urlopów</a>
+                <a class="quick-link" href="/pracownicy">Pracownicy</a>
+                <a class="quick-link" href="/limity-urlopowe">Limity urlopowe</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="home-two-columns mt-3">
+        <div class="card">
+            <div class="card-header">
+                Nieobecni dzisiaj
+            </div>
+
+            <div class="card-body">
+                @if (!todayAbsences.Any())
+                {
+                    <div class="alert alert-info">
+                        Dzisiaj nie ma zaakceptowanych urlopów.
+                    </div>
+                }
+                else
+                {
+                    <table class="table table-striped align-middle">
+                        <thead>
+                            <tr>
+                                <th>Pracownik</th>
+                                <th>Zastępca</th>
+                                <th>Termin</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var absence in todayAbsences)
+                            {
+                                <tr>
+                                    <td><strong>@absence.EmployeeFullName</strong></td>
+                                    <td>@absence.SubstituteEmployeeFullName</td>
+                                    <td>
+                                        @absence.DateFrom.ToString("yyyy-MM-dd")
+                                        –
+                                        @absence.DateTo.ToString("yyyy-MM-dd")
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                Nieobecności w tym tygodniu
+                <span class="text-muted">
+                    (@weekStart.ToString("yyyy-MM-dd") – @weekEnd.ToString("yyyy-MM-dd"))
+                </span>
+            </div>
+
+            <div class="card-body">
+                @if (!weekAbsences.Any())
+                {
+                    <div class="alert alert-info">
+                        W tym tygodniu nie ma zaakceptowanych urlopów.
+                    </div>
+                }
+                else
+                {
+                    <table class="table table-striped align-middle">
+                        <thead>
+                            <tr>
+                                <th>Pracownik</th>
+                                <th>Zastępca</th>
+                                <th>Termin</th>
+                                <th>Dni</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var absence in weekAbsences)
+                            {
+                                <tr>
+                                    <td><strong>@absence.EmployeeFullName</strong></td>
+                                    <td>@absence.SubstituteEmployeeFullName</td>
+                                    <td>
+                                        @absence.DateFrom.ToString("yyyy-MM-dd")
+                                        –
+                                        @absence.DateTo.ToString("yyyy-MM-dd")
+                                    </td>
+                                    <td>@absence.DaysCount</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool isLoading = true;
+
+    private int activeEmployeesCount;
+    private bool hasCoordinator;
+
+    private VacationRequestCounters counters = new();
+
+    private List<VacationRequest> todayAbsences = new();
+    private List<VacationRequest> weekAbsences = new();
+
+    private DateTime weekStart;
+    private DateTime weekEnd;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var today = DateTime.Today;
+
+        weekStart = GetMonday(today);
+        weekEnd = weekStart.AddDays(6);
+
+        var activeEmployees = (await EmployeeService.GetActiveAsync()).ToList();
+
+        activeEmployeesCount = activeEmployees.Count;
+        hasCoordinator = await EmployeeService.HasCoordinatorAsync();
+        counters = await VacationRequestService.GetCountersAsync(today.Year);
+
+        todayAbsences = (await VacationRequestService.GetApprovedAbsencesAsync(
+            today,
+            today)).ToList();
+
+        weekAbsences = (await VacationRequestService.GetApprovedAbsencesAsync(
+            weekStart,
+            weekEnd)).ToList();
+
+        isLoading = false;
+    }
+
+    private static DateTime GetMonday(DateTime date)
+    {
+        date = date.Date;
+
+        while (date.DayOfWeek != DayOfWeek.Monday)
+        {
+            date = date.AddDays(-1);
+        }
+
+        return date;
+    }
+}
